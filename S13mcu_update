@@ -1,0 +1,219 @@
+#!/bin/sh
+
+PROG=/usr/bin/mcu_util
+LOG_FILE=/tmp/mcu_update.log
+KLIPPER_DIR=/usr/share/klipper
+FW_ROOT_DIR=$KLIPPER_DIR/fw
+
+RET_SUCCESS=0
+RET_TIMEOUT=1
+RET_ERROR=2
+
+write_log()
+{
+    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1" >> $LOG_FILE
+}
+
+mcu_handshake()
+{    
+    local tty_path=$1
+    local output=$(mcu_util -i $tty_path -c)
+    local ret=$?
+
+    if [ $ret = $RET_SUCCESS ]; then
+        write_log "Handshake with $tty_path success"
+    else
+        write_log "Handshake with $tty_path failed with code $ret"
+        write_log "$output"
+    fi
+
+    echo $ret
+}
+
+get_version()
+{
+    local tty_path=$1
+    local version=$(mcu_util -i $tty_path -g)
+    local ret=$?
+
+    if [ $ret = $RET_SUCCESS ]; then
+        write_log "Get version from $tty_path: $version"
+        echo "$version"
+    else
+        write_log "Get version from $tty_path failed with code $ret"
+        echo "unknown"
+    fi
+
+}
+
+startup_app()
+{
+    local tty_path=$1
+    local output=$(mcu_util -i $tty_path -s)
+    local ret=$?
+
+    if [ $ret = $RET_SUCCESS ]; then
+        write_log "Startup $tty_path success"
+    else
+        write_log "Startup $tty_path failed with code $ret"
+        write_log "$output"
+    fi
+
+    echo $ret
+}
+
+fw_update()
+{
+    local tty_path=$1
+    local fw_path=$2
+    local output=$(mcu_util -i $tty_path -u -f $fw_path)
+    local ret=$?
+
+    if [ $ret = $RET_SUCCESS ]; then
+        write_log "Firmware update on $tty_path successful"
+    else
+        write_log "Firmware update on $tty_path failed, $fw_path, code $ret"
+        write_log "$output"
+    fi
+
+    echo $ret
+}
+
+fw_flash()
+{
+    local tty_path=$1
+    local bin_path=$2
+
+    get_version $tty_path
+
+    if [ -e $bin_path ]; then
+        write_log "Found a binary file $bin_path"
+        write_log "Trying to flash it to $tty_path ..."
+        
+        local fw_out=$(fw_update $tty_path $bin_path)
+        local fw_ret=$?
+
+        if [ $fw_ret = $RET_SUCCESS ]; then
+            mv -f $bin_path $bin_path.flashed
+        fi
+    else
+        write_log "Trying to startup $tty_path ..."
+        startup_app $tty_path
+    fi
+}
+
+auto_update()
+{
+    local model=$(get_sn_mac.sh model)
+    local board=$(get_sn_mac.sh board)
+    local fw_dir=
+
+    local mcu_serial=/dev/ttyS7
+    local bed_serial=/dev/ttyS9
+    local noz_serial=/dev/ttyS1
+
+    local mcu_ready=false
+    local bed_ready=false
+    local noz_ready=false
+
+    local ret=0
+
+    local mcu_bin_name=mcu_klipper
+    local bed_bin_name=bed_klipper
+    local noz_bin_name=noz_klipper
+
+    # Check board and printer model
+    case $board in
+        "CR4CU220812S10" | "CR4CU220812S11" | "CR4CU220812S12")
+            if [ "$model" = "CR-K1" -o "$model" = "K1C" \
+                -o "$model" = "CR-K1 Max" -o "$model" = "K1 Max SE" ]; then
+                fw_dir=K1
+                write_log "The directory selected for this hardware is: $fw_dir"
+            else
+                write_log "The script is not intended for this printer model ($model)"
+                exit 1
+            fi
+            ;;
+        *)
+            write_log "The script is not intended for this board ($board)"
+            exit 1
+    esac
+
+    # Check firmwares directory
+    if [ ! -d $FW_ROOT_DIR/$fw_dir ]; then
+        write_log "Directory $FW_ROOT_DIR/$fw_dir does not exist"
+        mkdir -p $FW_ROOT_DIR/$fw_dir
+    fi
+
+    write_log "Total firmware directory: $FW_ROOT_DIR/$fw_dir"
+
+    # For some reason you have to get all the handshakes
+    #   first and then flash the firmware, otherwise there may be problems.
+
+    # Handshaking
+    write_log ""
+    write_log "------------------ Handshake bed mcu ---------------------"
+    if [ -e $bed_serial ]; then
+        bed_ready=$(mcu_handshake $bed_serial)
+        ret=$?
+    else
+        write_log "Bed mcu $bed_serial does not exist"
+    fi
+    
+    write_log ""
+    write_log "------------------ Handshake main mcu --------------------"
+    if [ -e $mcu_serial ]; then
+        mcu_ready=$(mcu_handshake $mcu_serial)
+        ret=$?
+    else
+        write_log "Main mcu $mcu_serial does not exist"
+    fi
+
+    write_log ""
+    write_log "------------------ Handshake nozzle mcu ------------------"
+    if [ -e $noz_serial ]; then
+        noz_ready=$(mcu_handshake $noz_serial)
+        ret=$?
+    else
+        write_log "Nozzle mcu $noz_serial does not exist"
+    fi
+
+    # Flashing
+    if [ $bed_ready = $RET_SUCCESS ]; then
+        write_log ""
+        write_log "------------------ Flashing bed mcu ---------------------"
+        fw_flash $bed_serial $FW_ROOT_DIR/$fw_dir/$bed_bin_name.bin
+    fi
+    
+    if [ $mcu_ready = $RET_SUCCESS ]; then
+        write_log ""
+        write_log "------------------ Flashing main mcu --------------------"
+        fw_flash $mcu_serial $FW_ROOT_DIR/$fw_dir/$mcu_bin_name.bin
+    fi
+
+    if [ $noz_ready = $RET_SUCCESS ]; then
+        write_log ""
+        write_log "------------------ Flashing nozzle mcu ------------------"
+        fw_flash $noz_serial $FW_ROOT_DIR/$fw_dir/$noz_bin_name.bin
+    fi
+
+}
+
+[ -x $PROG ] || {
+    write_log "File $PROG not found!"
+    exit 1
+}
+
+[ -e $LOG_FILE ] || touch $LOG_FILE
+
+case "$1" in
+    start)
+        auto_update
+        ;;
+    *)
+        write_log "Usage: $0 start"
+        exit 1
+esac
+
+exit $?
+

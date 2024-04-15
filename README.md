@@ -1,11 +1,14 @@
 # How to use:
 ```
 cd /usr/data
-wget --no-check-certificate https://raw.githubusercontent.com/K1-Klipper/installer_script_k1_and_max/main/installer.sh
+wget --no-check-certificate https://raw.githubusercontent.com/cryoz/installer_script_k1_and_max/main/installer.sh
 chmod +x installer.sh
 ./installer.sh
 ```
 
+Load-cell adapted klipper repo for Creality K1 series printers.
+
+# Original readme
 
 ## What this does:
 
