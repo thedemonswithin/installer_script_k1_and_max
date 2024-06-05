@@ -9,6 +9,7 @@ case $choice in
             yes|YES)
                 echo "Downloading Klipper Repository"
 		git config --global http.sslVerify false
+                git config --global http.postBuffer 131072000
 		git clone https://github.com/cryoz/klipper.git /usr/data/klipper
 		mv /usr/share/klipper /usr/data/old.klipper
 		ln -s /usr/data/klipper /usr/share/klipper
