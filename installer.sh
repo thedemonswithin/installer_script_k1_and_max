@@ -10,7 +10,7 @@ case $choice in
                 echo "Downloading Klipper Repository"
 		git config --global http.sslVerify false
                 git config --global http.postBuffer 131072000
-		git clone https://github.com/cryoz/klipper.git /usr/data/klipper
+		git clone https://github.com/thedemonswithin/klipper.git /usr/data/klipper
 		mv /usr/share/klipper /usr/data/old.klipper
 		ln -s /usr/data/klipper /usr/share/klipper
   		cp /usr/data/printer_data/config/printer.cfg /usr/data/printer_data/config/printer.bak
